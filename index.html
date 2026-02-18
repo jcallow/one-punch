@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OnePunch Mod - Source Code</title>
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+  />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    header img {
+      width: 80px;
+      height: 80px;
+      object-fit: cover;
+      border-radius: 8px;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+    }
+
+    header p {
+      color: #8b949e;
+      margin-top: 0.25rem;
+    }
+
+    .code-container {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1rem;
+      background: #21262d;
+      border-bottom: 1px solid #30363d;
+    }
+
+    .code-header span {
+      font-size: 0.875rem;
+      color: #8b949e;
+      font-family: monospace;
+    }
+
+    pre {
+      margin: 0;
+      overflow-x: auto;
+    }
+
+    pre code {
+      font-size: 0.875rem;
+      line-height: 1.6;
+      padding: 1.25rem !important;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="OnePunchBanner.jpg" alt="OnePunch banner" />
+    <div>
+      <h1>OnePunch</h1>
+      <p>Green Hell mod &mdash; one-shot melee combat overhaul</p>
+    </div>
+  </header>
+
+  <div class="code-container">
+    <div class="code-header">
+      <span>OnePunch.cs</span>
+      <span>C#</span>
+    </div>
+    <pre><code class="language-csharp">using UnityEngine;
+using System.Reflection;
+using AIs;
+using HarmonyLib;
+
+public class OnePunch : Mod
+{
+
+    private static Harmony m_harmony;
+
+    private const string ModName = "OnePunch";
+    private const string HarmonyId = "com.jcallow.projects.onepunch";
+
+    public void Start()
+    {
+        m_harmony = new Harmony(HarmonyId);
+        var assembly = Assembly.GetExecutingAssembly();
+        m_harmony.PatchAll(assembly);
+        Debug.Log("Mod OnePunch has been loaded!");
+
+    }
+
+    public void OnModUnload()
+    {
+        Debug.Log(string.Format("Mod {0} has been unloaded!", ModName));
+        m_harmony.UnpatchAll(HarmonyId);
+    }
+}
+
+[HarmonyPatch(typeof(PlayerFist))]
+class PlayerFistPatch
+{
+
+    [HarmonyPostfix]
+    [HarmonyPatch("Awake")]
+    static void Awake(PlayerFist __instance)
+    {
+        Debug.Log("Awake upgraded fists");
+        SphereCollider s = (SphereCollider)__instance.m_HandCollider;
+        s.radius = 1.0f;
+    }
+
+
+    [HarmonyPrefix]
+    [HarmonyPatch("OnTriggerEnter")]
+    static void OnTriggerEnter(Collider other, PlayerFist __instance)
+    {
+        Rigidbody hand = __instance.gameObject.GetComponent&lt;Rigidbody&gt;();
+        SphereCollider s = (SphereCollider)__instance.m_HandCollider;
+        s.radius = 1.0f;
+
+        AI component = other.gameObject.GetComponent&lt;AI&gt;();
+        if (component != null)
+        {
+            if (component.m_BoxCollider == null)
+            {
+                component.SetupBoxCollider();
+            }
+            component.StartRagdoll();
+            if (component.m_RagdollBones != null)
+            {
+
+                foreach (RagdollBone b in component.m_RagdollBones)
+                {
+                    Vector3 vel = Player.Get().transform.forward.normalized * 40;
+                    b.m_Rigidbody.velocity = vel;
+                }
+            }
+        }
+
+    }
+}
+
+[HarmonyPatch(typeof(FistFightController), "GiveDamage")]
+class FistFightControllerPatch
+{
+    static bool Prefix(FistFightController __instance, ref DamageInfo ___m_DamageInfo, Collider ___m_LeftHandCollider,
+        Collider ___m_RightHandCollider, AI ai)
+    {
+
+        Debug.Log("Damage info: " + ___m_DamageInfo);
+        ___m_DamageInfo.m_Damage = 100000;
+        ___m_DamageInfo.m_Damager = __instance.gameObject;
+        ___m_DamageInfo.m_HitDir = __instance.transform.forward;
+        ___m_DamageInfo.m_Position = (___m_LeftHandCollider.enabled ? ___m_LeftHandCollider.bounds.center : ___m_RightHandCollider.bounds.center);
+        if (ai.TakeDamage(___m_DamageInfo))
+        {
+            PlayerAudioModule.Get().PlayFistsHitSound();
+        }
+        ___m_LeftHandCollider.enabled = false;
+        ___m_RightHandCollider.enabled = false;
+        bool flag = true;
+        if (ai &amp;&amp; ai.m_ID == AI.AIID.ArmadilloThreeBanded &amp;&amp; ai.m_GoalsModule != null &amp;&amp; ai.m_GoalsModule.m_ActiveGoal != null &amp;&amp; ai.m_GoalsModule.m_ActiveGoal.m_Type == AIGoalType.Hide)
+        {
+            flag = false;
+        }
+        if (flag)
+        {
+            Skill.Get&lt;FistsSkill&gt;().OnSkillAction(true);
+        }
+        return false;
+    }
+}</code></pre>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
+</body>
+</html>
